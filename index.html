@@ -532,11 +532,13 @@ function makeId() {
     }
     if (toTop) {
       // Deck array end is the top; the shuffled group occupies the topmost positions.
-      deck.forEach(item => { item.fixedTop=false; });
+      // Keep previously fixed top cards: the new shuffled group is inserted above them,
+      // so their identities remain known even though their positions move deeper.
       group.forEach(item => deck.push(item));
     } else {
       // Deck array start is the bottom.
-      deck.forEach(item => { item.fixedBottom=false; });
+      // Keep previously fixed bottom cards: the new shuffled group is inserted below them,
+      // so their identities remain known even though their positions move inward.
       group.forEach(item => deck.unshift(item));
     }
     chosen.forEach(removeCard);
