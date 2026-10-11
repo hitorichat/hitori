@@ -252,7 +252,8 @@ button.control-tile:disabled { opacity:.45; }
   <div class="prob-head">
     <div>
       <h2>ドロー確率（山札の上から）</h2>
-      <p class="prob-note">山札の上から指定枚数を引いた場合の確率を計算します。固定順のカードは、その順番を反映します。</p>
+      <p class="prob-note">山札の上から指定枚数を引いた場合の確率です。カードの構成・位置・公開状態を追跡します。</p>
+      <div id="probTrackingStatus" class="prob-note" role="status"></div>
     </div>
     <button id="closeProbability" class="prob-close" type="button" aria-label="確率画面を閉じる">×</button>
   </div>
@@ -372,6 +373,7 @@ function makeId() {
   let originalTotal = 0;
   let selected = new Set();
   let nextId = 1;
+  let nextFixedGroupId = 1;
   let drag = null;
   const undoStack = [];
   const redoStack = [];
@@ -380,8 +382,8 @@ function makeId() {
   function snapshot() {
     return {
       cards: cards.map(c => ({id:c.id, src:c.src, name:c.name, known:!!c.known, unknown:!!c.unknown, x:c.x, y:c.y, facedown:c.facedown, tapped:c.tapped, rotation:c.rotation || 0})),
-      deck: deck.map(d => ({src:d.src, name:d.name, known:!!d.known, fixedTop:!!d.fixedTop, fixedBottom:!!d.fixedBottom, fixedUnknownOrder:!!d.fixedUnknownOrder})),
-      nextId
+      deck: deck.map(d => ({src:d.src, name:d.name, known:!!d.known, fixedTop:!!d.fixedTop, fixedBottom:!!d.fixedBottom, fixedUnknownOrder:!!d.fixedUnknownOrder, fixedGroupId:d.fixedGroupId ?? null})),
+      nextId, nextFixedGroupId
     };
   }
   function saveUndo(state = snapshot()) {
@@ -399,6 +401,7 @@ function makeId() {
     cards=[]; selected.clear();
     deck=state.deck.map(d => ({known:false, fixedTop:false, fixedBottom:false, ...d}));
     nextId=state.nextId;
+    nextFixedGroupId=state.nextFixedGroupId || 1;
     state.cards.forEach(data => { const card={...data,el:null}; mountCard(card); cards.push(card); });
     updateSelected(); updateStatus(); refreshProbabilityUI(); updateHistoryButtons();
   }
@@ -505,7 +508,7 @@ function makeId() {
       const j=Math.floor(Math.random()*(i+1));
       [deck[i],deck[j]]=[deck[j],deck[i]];
     }
-    deck.forEach(item => { item.fixedTop=false; item.fixedBottom=false; item.fixedUnknownOrder=false; });
+    deck.forEach(item => { item.fixedTop=false; item.fixedBottom=false; item.fixedUnknownOrder=false; item.fixedGroupId=null; });
     updateStatus();
     if (typeof refreshProbabilityUI === 'function') refreshProbabilityUI();
   }
@@ -532,13 +535,15 @@ function makeId() {
     const allSameKnownCard = !!firstKnownSrc && chosen.every(c =>
       !c.unknown && !!c.known && c.src === firstKnownSrc
     );
+    const fixedGroupId = nextFixedGroupId++;
     const group = chosen.map(c => ({
       src:c.src,
       name:c.name,
       known:!c.unknown && !!c.known,
       fixedTop:!!toTop,
       fixedBottom:!toTop,
-      fixedUnknownOrder:!allSameKnownCard
+      fixedUnknownOrder:!allSameKnownCard,
+      fixedGroupId
     }));
     for (let i = group.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -681,73 +686,103 @@ function makeId() {
     a.forEach((v,i)=>b.forEach((w,j)=>out[i+j]+=v*w));
     return out;
   }
+  function fixedBlocksFromEnd(items, side) {
+    const blocks=[]; let i=side==='top'?items.length-1:0;
+    const step=side==='top'?-1:1;
+    while(i>=0 && i<items.length && (side==='top'?items[i].fixedTop:items[i].fixedBottom)) {
+      const item=items[i];
+      const gid=item.fixedGroupId ?? ('legacy-'+side+'-'+i);
+      const block=[];
+      while(i>=0 && i<items.length && (side==='top'?items[i].fixedTop:items[i].fixedBottom) && (items[i].fixedGroupId ?? ('legacy-'+side+'-'+i))===gid) {
+        block.push(items[i]); i+=step;
+      }
+      blocks.push(block);
+    }
+    return blocks;
+  }
+  function blockHitDistribution(block, drawN, keys) {
+    if(drawN<=0) return [1];
+    const hit=block.filter(d=>d.src && keys.has(d.src)).length;
+    return hypergeomDistribution(block.length,hit,drawN);
+  }
+  function consumeBlocks(blocks, draws, keys) {
+    let dist=[1], remaining=draws, used=0;
+    for(const block of blocks) {
+      if(remaining<=0) break;
+      const n=Math.min(remaining,block.length);
+      dist=convolve(dist,blockHitDistribution(block,n,keys));
+      remaining-=n; used+=n;
+    }
+    return {dist, used, remaining};
+  }
   function calculateProbability() {
     const requested=Math.max(1,Number(document.getElementById('drawCountValue').textContent)||1);
     const deckSize=deck.length;
-    if(!deckSize){probResults.textContent='山札がありません。';return;}
+    const tracking=document.getElementById('probTrackingStatus');
+    if(!deckSize){probResults.textContent='山札がありません。'; tracking.textContent='正常：山札がないため計算できません。';return;}
     const selectedKeys=[...chosenProbabilityCards];
-    const topN=fixedTopCount(), bottomN=fixedBottomCount();
-    const top=deck.slice(deckSize-topN), bottom=deck.slice(0,bottomN), middle=deck.slice(bottomN,deckSize-topN);
+    const topBlocks=fixedBlocksFromEnd(deck,'top');
+    const bottomBlocks=fixedBlocksFromEnd(deck,'bottom');
+    const topN=topBlocks.reduce((n,b)=>n+b.length,0), bottomN=bottomBlocks.reduce((n,b)=>n+b.length,0);
+    const topItems=topBlocks.flat(), bottomItems=bottomBlocks.flat();
+    const middle=deck.slice(bottomN,deckSize-topN);
     const draws=Math.min(requested,deckSize);
     const topDraws=Math.min(draws,topN);
     const middleDraws=Math.min(Math.max(0,draws-topDraws),middle.length);
     const bottomDraws=Math.max(0,draws-topDraws-middleDraws);
     const hiddenOnBoard=cards.filter(c=>c.unknown).length;
-    const knownOut=knownOutsidePoolCounts();
+    const hasUnknownFixed=[...topItems,...bottomItems].some(d=>!d.src || !d.known);
+    const knownOut=new Map();
+    cards.forEach(c=>{ if(!c.unknown && c.src) knownOut.set(c.src,(knownOut.get(c.src)||0)+1); });
+    const fixedCounts=new Map();
+    [...topItems,...bottomItems].forEach(d=>{if(d.src)fixedCounts.set(d.src,(fixedCounts.get(d.src)||0)+1);});
     const randomCounts=new Map();
-    originalCounts.forEach((total,key)=>{
-      const fixedCount=top.concat(bottom).filter(d=>d.src===key && d.known && !d.fixedUnknownOrder).length;
-      const outside=(knownOut.get(key)||0)+fixedCount;
-      randomCounts.set(key,Math.max(0,total-outside));
-    });
-    // Unknown face-down cards are not inspected. The random pool includes the remaining middle
-    // and hidden cards on the board; shuffled top/bottom groups retain their composition but not order.
-    const effectivePool=Math.max(middle.length+hiddenOnBoard,
-      originalTotal-[...knownOut.values()].reduce((a,b)=>a+b,0)-topN-bottomN);
-    const regionDistribution=(items,count,selectedPredicate)=>{
-      if(count<=0)return [1];
-      const selectedCount=items.filter(selectedPredicate).length;
-      return hypergeomDistribution(items.length,selectedCount,count);
+    originalCounts.forEach((total,key)=>randomCounts.set(key,Math.max(0,total-(knownOut.get(key)||0)-(fixedCounts.get(key)||0))));
+    const effectivePool=Math.max(0,middle.length+hiddenOnBoard);
+    const topUnknown=topItems.some(d=>!d.src || !d.known);
+    const bottomUnknown=bottomItems.some(d=>!d.src || !d.known);
+    let statusText='正常：カードの構成・位置を追跡できています。確率を計算できます。';
+    let unsupportedReason='';
+    if(topUnknown || bottomUnknown) unsupportedReason='山上・山下に正体が不明なカードがあるため、位置と構成を正確に対応づけられません。';
+    if(!unsupportedReason && topBlocks.length+bottomBlocks.length>=5) statusText='複雑化：固定カードのまとまりが増えていますが、現在の情報に基づいて計算できます。';
+    if(unsupportedReason){
+      tracking.textContent='計算対象外：'+unsupportedReason;
+      probResults.textContent='正確な確率を保証できないため、計算結果を表示しません。';
+      return;
+    }
+    tracking.textContent=statusText;
+    const distributionForKeys=(keys)=>{
+      let dist=[1];
+      const topPart=consumeBlocks(topBlocks,topDraws,keys); dist=convolve(dist,topPart.dist);
+      const midDraw=Math.min(middleDraws,Math.max(0,draws-topPart.used));
+      if(midDraw>0){
+        const hit=[...keys].reduce((sum,key)=>sum+(randomCounts.get(key)||0),0);
+        dist=convolve(dist,hypergeomDistribution(effectivePool,hit,midDraw));
+      }
+      const drawnBefore=topPart.used+midDraw;
+      const botDraw=Math.min(bottomDraws,Math.max(0,draws-drawnBefore));
+      if(botDraw>0){ const botPart=consumeBlocks(bottomBlocks,botDraw,keys); dist=convolve(dist,botPart.dist); }
+      return dist;
     };
-    const midCountsForKeys=keys=>keys.reduce((sum,key)=>sum+(randomCounts.get(key)||0),0);
-    const selectedCountInGroup=(items,keys)=>items.filter(d=>d.src && keys.includes(d.src)).length;
     let rows='';
     selectedKeys.forEach(key=>{
       const sample=allCardSample(key);
-      const knownFixedHit=top.slice(top.length-topDraws).some(d=>d.known&&!d.fixedUnknownOrder&&d.src===key) || bottom.slice(0,bottomDraws).some(d=>d.known&&!d.fixedUnknownOrder&&d.src===key);
-      let p=knownFixedHit?1:0;
-      if(!p){
-        const hit=randomCounts.get(key)||0;
-        const d=hypergeomAtLeastOne(effectivePool,hit,middleDraws);
-        const topHit=selectedCountInGroup(top,key===null?[]:[key]);
-        const bottomHit=selectedCountInGroup(bottom,key===null?[]:[key]);
-        const topDist=hypergeomDistribution(topN,topHit,topDraws), midDist=hypergeomDistribution(effectivePool,hit,middleDraws), botDist=hypergeomDistribution(bottomN,bottomHit,bottomDraws);
-        const dist=convolve(convolve(topDist,midDist),botDist);
-        p=1-(dist[0]||0);
-        if(topN===0 && bottomN===0) p=d;
-      }
+      const dist=distributionForKeys(new Set([key]));
+      const p=dist.slice(1).reduce((a,b)=>a+b,0);
       const img=sample?`<img src="${sample.src}" alt="">`:'';
       rows+=`<div class="prob-result-row"><div class="prob-result-name">${img}<span>このカード（デッキ採用 ${originalCounts.get(key)||0}枚）</span></div><strong>${fmtPercent(p)}</strong></div>`;
     });
     if(selectedKeys.length){
-      const topSelected=selectedCountInGroup(top,selectedKeys), bottomSelected=selectedCountInGroup(bottom,selectedKeys), middleSelected=midCountsForKeys(selectedKeys);
-      const topDist=hypergeomDistribution(topN,topSelected,topDraws);
-      const midDist=hypergeomDistribution(effectivePool,middleSelected,middleDraws);
-      const botDist=hypergeomDistribution(bottomN,bottomSelected,bottomDraws);
-      const dist=convolve(convolve(topDist,midDist),botDist);
+      const dist=distributionForKeys(new Set(selectedKeys));
       for(let minimum=1;minimum<=draws;minimum++){
         const probability=dist.reduce((sum,v,k)=>sum+(k>=minimum?v:0),0);
         rows+=`<div class="prob-result-row"><span>選択カードを${minimum}枚以上引く</span><div class="prob-result-values"><strong>${fmtPercent(probability)}</strong><span class="prob-complement">(${fmtPercent(1-probability)})</span></div></div>`;
       }
-      const allP=draws===0?1:(draws<=topN+bottomN ? 0 : 0);
-      // Exact probability that every drawn card is selected, computed region by region.
-      const topAll=topSelected>=topDraws && topN>=topDraws ? choose(topSelected,topDraws)/Math.max(1,choose(topN,topDraws)):0;
-      const midAll=middleDraws===0?1:(middleSelected>=middleDraws?choose(middleSelected,middleDraws)/Math.max(1,choose(effectivePool,middleDraws)):0);
-      const botAll=bottomDraws===0?1:(bottomSelected>=bottomDraws?choose(bottomSelected,bottomDraws)/Math.max(1,choose(bottomN,bottomDraws)):0);
-      const allProbability=topAll*midAll*botAll;
+      // All cards drawn are selected iff the selected-hit count equals the draw count.
+      const allProbability=dist[draws] || 0;
       rows+=`<div class="prob-result-row"><span>引いたカードがすべて選択カード</span><div class="prob-result-values"><strong>${fmtPercent(allProbability)}</strong><span class="prob-complement">(${fmtPercent(1-allProbability)})</span></div></div>`;
     } else rows='<div>カードを選択すると確率を表示します。</div>';
-    rows+=`<div class="small">計算対象：山札 ${deckSize}枚 / ドロー ${draws}枚。場の裏向きカード ${hiddenOnBoard}枚は正体を参照せず、未知のカードとして計算します。シャッフルして山上・山下へ戻したカードは、内訳を保ちつつ順番を未確定として扱います。</div>`;
+    rows+=`<div class="small">計算対象：山札 ${deckSize}枚 / ドロー ${draws}枚。場の裏向きカード ${hiddenOnBoard}枚は正体を参照せず、未知のカードとして計算します。山上・山下のシャッフル済みグループは、カード構成を保ち、グループ内の順番だけをランダムとして扱います。</div>`;
     probResults.innerHTML=rows;
   }
   function allCardSample(key) {
@@ -828,12 +863,12 @@ function makeId() {
   document.getElementById('topDeck').onclick = () => {
     const chosen=selectedCards(); if (chosen.length !== 1) { alert('山札の上へ送るカードを1枚だけ選択してね。'); return; }
     saveUndo();
-    const c=chosen[0]; deck.push({src:c.unknown ? null : c.src,name:c.unknown ? null : c.name,known:!c.unknown && !!c.known,fixedTop:true,fixedBottom:false,fixedUnknownOrder:false}); removeCard(c); selected.clear(); updateStatus(); refreshProbabilityUI();
+    const c=chosen[0]; deck.push({src:c.unknown ? null : c.src,name:c.unknown ? null : c.name,known:!c.unknown && !!c.known,fixedTop:true,fixedBottom:false,fixedUnknownOrder:false,fixedGroupId:nextFixedGroupId++}); removeCard(c); selected.clear(); updateStatus(); refreshProbabilityUI();
   };
   document.getElementById('bottomDeck').onclick = () => {
     const chosen=selectedCards(); if (chosen.length !== 1) { alert('山札の下へ送るカードを1枚だけ選択してね。'); return; }
     saveUndo();
-    const c=chosen[0]; deck.unshift({src:c.unknown ? null : c.src,name:c.unknown ? null : c.name,known:!c.unknown && !!c.known,fixedBottom:true,fixedTop:false,fixedUnknownOrder:false}); removeCard(c); selected.clear(); updateStatus(); refreshProbabilityUI();
+    const c=chosen[0]; deck.unshift({src:c.unknown ? null : c.src,name:c.unknown ? null : c.name,known:!c.unknown && !!c.known,fixedBottom:true,fixedTop:false,fixedUnknownOrder:false,fixedGroupId:nextFixedGroupId++}); removeCard(c); selected.clear(); updateStatus(); refreshProbabilityUI();
   };
   document.getElementById('shuffleToTop').onclick = () => shuffleSelectedIntoDeck(true);
   document.getElementById('shuffleToBottom').onclick = () => shuffleSelectedIntoDeck(false);
