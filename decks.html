@@ -1,0 +1,700 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>デッキ管理 - 1人回しカード盤</title>
+<style>
+:root { --bg:#17191e; --panel:#242832; --line:#414754; --text:#f3f4f6; --muted:#b8bfcc; --accent:#c87522; }
+* { box-sizing:border-box; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+html,body { margin:0; min-height:100%; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+body { padding:16px; }
+main { max-width:1000px; margin:0 auto; }
+header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:20px; }
+h1 { font-size:22px; margin:0; }
+h2 { font-size:18px; margin:0 0 12px; }
+p { color:var(--muted); line-height:1.6; }
+a { color:#dce4ff; text-decoration:none; }
+button,.button,input[type=text],input[type=number] { font:inherit; border-radius:8px; border:1px solid #555d6d; padding:10px 12px; }
+button,.button { display:inline-flex; align-items:center; justify-content:center; background:#303642; color:var(--text); cursor:pointer; text-decoration:none; }
+button.primary,.button.primary { background:#3858a8; border-color:#6484d8; }
+button.danger { background:#553032; border-color:#875052; }
+button.orange { background:var(--accent); border-color:#f0a24d; }
+input[type=text],input[type=number] { background:#11141a; color:var(--text); width:100%; }
+input[type=file] { display:none; }
+.panel { background:#20232a; border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:16px; }
+.row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.row > input[type=text] { flex:1; min-width:180px; }
+.deck-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px; }
+.deck-card { background:#292e38; border:1px solid #414754; border-radius:12px; padding:14px; display:flex; flex-direction:column; gap:10px; min-width:0; }
+.deck-card h3 { margin:0; font-size:17px; overflow-wrap:anywhere; }
+.deck-card .meta { color:var(--muted); font-size:13px; }
+.deck-list { grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.deck-card { padding:12px; }
+.deck-card .deck-preview { grid-template-columns:repeat(8,minmax(0,1fr)); max-height:420px; }
+.deck-card .row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:5px; }
+.deck-card .row > * { min-width:0; padding:8px 4px; font-size:13px; white-space:nowrap; }
+.deck-add-button { width:100%; min-height:68px; font-size:22px; font-weight:700; margin-top:14px; }
+.storage-panel { margin-top:14px; }
+.storage-track { height:10px; background:#11141a; border:1px solid #414754; border-radius:999px; overflow:hidden; margin:8px 0; }
+.storage-fill { height:100%; width:20%; background:#5c9b6a; transition:width .25s ease,background .25s ease; border-radius:999px; }
+.storage-fill.level-2 { background:#a7ad38; }
+.storage-fill.level-3 { background:#c78a2c; }
+.storage-fill.level-4 { background:#d66c2f; }
+.storage-fill.level-5 { background:#c34f4f; }
+.storage-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+.storage-note { font-size:13px; line-height:1.6; color:var(--muted); }
+@media (max-width:520px) { .deck-list { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; } .deck-card { padding:8px; gap:8px; } .deck-card h3 { font-size:15px; } .deck-card .deck-preview { grid-template-columns:repeat(8,minmax(0,1fr)); max-height:260px; gap:2px; } .deck-card .row { grid-template-columns:1fr; } .deck-card .row > * { width:100%; } .deck-add-button { min-height:58px; font-size:19px; } }
+
+.deck-preview { display:grid; grid-template-columns:repeat(8,minmax(0,1fr)); gap:5px; max-height:900px; overflow-y:auto; padding:6px; background:#191c22; border:1px solid #414754; border-radius:8px; }
+.preview-card { min-width:0; text-align:center; }
+.preview-card img { display:block; width:100%; aspect-ratio:5/7; object-fit:contain; background:#11141a; border-radius:4px; }
+.no-preview { color:var(--muted); font-size:12px; padding:8px 0; }
+.card-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(145px,1fr)); gap:10px; margin-top:14px; }
+.card-item { background:#292e38; border:1px solid #414754; border-radius:10px; padding:9px; display:flex; flex-direction:column; gap:8px; min-width:0; }
+.card-item img { width:100%; height:170px; object-fit:contain; background:#15171c; border-radius:6px; }
+.card-name { font-size:13px; overflow-wrap:anywhere; }
+.quantity-control { display:grid; grid-template-columns:44px minmax(30px,1fr) 44px; gap:6px; align-items:center; }
+.quantity-control button { min-height:42px; padding:6px; font-size:20px; font-weight:600; touch-action:manipulation; }
+.quantity-value { text-align:center; font-size:17px; font-weight:600; font-variant-numeric:tabular-nums; }
+.card-item .remove { width:100%; padding:7px; }
+.editor-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+.small { font-size:12px; color:var(--muted); }
+.empty { padding:20px; border:1px dashed #555d6d; border-radius:10px; text-align:center; color:var(--muted); }
+.hidden { display:none !important; }
+#message { min-height:20px; color:#b8d7b8; font-size:13px; margin-top:8px; }
+@media (max-width:520px) {
+ body { padding:12px; }
+ header { align-items:flex-start; }
+ h1 { font-size:19px; }
+ .panel { padding:12px; }
+ .deck-preview { gap:3px; padding:4px; }
+
+ .card-list { grid-template-columns:repeat(2,minmax(0,1fr)); }
+ .card-item img { height:145px; }
+ .quantity-control { grid-template-columns:40px minmax(24px,1fr) 40px; gap:4px; }
+}
+
+.save-modal-backdrop { position:fixed; inset:0; z-index:1000; display:flex; align-items:center; justify-content:center; padding:18px; background:rgba(0,0,0,.68); }
+.save-modal-backdrop[hidden] { display:none !important; }
+.save-modal { position:relative; width:min(100%,440px); background:#252a33; color:var(--text); border:1px solid #4a5260; border-radius:16px; padding:28px 18px 18px; box-shadow:0 18px 55px rgba(0,0,0,.42); }
+.save-modal h2 { margin:0 0 14px; font-size:20px; line-height:1.45; }
+.save-modal p { margin:0 0 20px; line-height:1.7; }
+.save-modal-close { position:absolute; top:7px; right:8px; border:0; background:transparent; font-size:25px; line-height:1; padding:6px 8px; color:inherit; }
+.save-modal-actions { display:flex; flex-direction:column; gap:9px; }
+.save-modal-actions button, .save-modal-actions a { width:100%; box-sizing:border-box; text-align:center; }
+
+
+.visual-settings { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; margin-top:14px; }
+.visual-preview { width:100%; aspect-ratio:3/4; max-height:none; border:1px solid #555d6d; border-radius:10px; background:#1b1e24; background-size:100% 100%; background-position:center; overflow:hidden; position:relative; min-height:240px; }
+.visual-preview::after { content:"盤面プレビュー"; position:absolute; left:8px; top:8px; padding:4px 7px; border-radius:5px; background:#0009; color:white; font-size:11px; }
+.back-preview { width:82px; aspect-ratio:5/7; border:4px double #c5d2f2; border-radius:7px; background:radial-gradient(ellipse at center,#364d88 0 13%,transparent 14%),repeating-linear-gradient(45deg,#1c2b50 0 5px,#334b7b 5px 10px); background-size:cover; background-position:center; }
+.visual-settings .small { display:block; line-height:1.5; }
+.preset-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+.nav-button { display:inline-flex; align-items:center; justify-content:center; padding:8px 11px; border:1px solid #555d6d; border-radius:8px; background:#303642; color:var(--text); font-size:13px; white-space:nowrap; }
+.nav-button:active { background:#454d5c; }
+
+/* デッキ編集画面 */
+.editor-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.editor-heading h2 { margin:0; }
+.editor-close { width:44px; height:44px; font-size:28px; padding:0; flex:0 0 auto; }
+.editor-preview-panel { margin-top:14px; }
+.editor-preview-grid { display:grid; grid-template-columns:repeat(8,minmax(0,1fr)); grid-auto-rows:max-content; gap:5px; height:420px; max-height:none; overflow-y:auto; padding:7px; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; background:#191c22; border:1px solid #414754; border-radius:8px; }
+.editor-preview-grid .preview-card img { display:block; width:100%; aspect-ratio:5/7; object-fit:contain; background:#11141a; border-radius:4px; }
+.editor-preview-grid .preview-card { min-width:0; }
+.card-list { display:flex; flex-direction:row; flex-wrap:nowrap; overflow-x:auto; gap:10px; padding:4px 2px 12px; margin-top:14px; scroll-snap-type:x proximity; -webkit-overflow-scrolling:touch; }
+.card-item { flex:0 0 116px; width:116px; scroll-snap-align:start; }
+.card-item .card-image-open { width:100%; padding:0; border:0; background:transparent; display:block; }
+.card-item .card-image-open img { width:100%; height:145px; object-fit:contain; display:block; background:#15171c; border-radius:6px; pointer-events:none; }
+.card-item .quantity-control { grid-template-columns:32px minmax(22px,1fr) 32px; gap:3px; }
+.card-item .quantity-control button { min-height:38px; }
+.editor-primary-actions { display:grid; grid-template-columns:1.35fr 1fr; gap:8px; margin-top:14px; }
+.editor-primary-actions > * { width:100%; min-height:48px; }
+.card-detail-image { display:block; max-width:100%; max-height:58vh; width:auto; height:auto; object-fit:contain; margin:0 auto 14px; border-radius:8px; background:#11141a; }
+.card-detail-name { overflow-wrap:anywhere; text-align:center; }
+@media(max-width:520px) {
+ .editor-preview-grid { gap:3px; padding:4px; }
+ .editor-preview-grid .preview-card img { border-radius:3px; }
+ .card-list { display:flex; flex-direction:row; flex-wrap:nowrap; }
+ .card-item { flex:0 0 108px; width:108px; }
+ .card-item .card-image-open img { height:132px; }
+}
+
+</style>
+</head>
+<body>
+
+<div id="saveSuccessModal" class="save-modal-backdrop" hidden>
+  <section class="save-modal" role="dialog" aria-modal="true" aria-labelledby="saveSuccessTitle">
+    <button type="button" class="save-modal-close" id="closeSaveSuccess" aria-label="このウィンドウを閉じる">×</button>
+    <h2 id="saveSuccessTitle">デッキを保存しました。</h2>
+    <p>このデッキでひとり回しをしますか？</p>
+    <div class="save-modal-actions">
+      <a id="startSavedDeck" class="button primary" href="index.html">はい</a>
+      <button type="button" id="returnToDeckEditor">デッキ編集画面にもどる</button>
+    </div>
+  </section>
+</div>
+
+
+<div id="cardDetailModal" class="save-modal-backdrop" hidden>
+  <section class="save-modal" role="dialog" aria-modal="true" aria-labelledby="cardDetailTitle">
+    <button type="button" class="save-modal-close" id="closeCardDetail" aria-label="閉じる">×</button>
+    <h2 id="cardDetailTitle" class="card-detail-name">カード画像</h2>
+    <img id="cardDetailImage" class="card-detail-image" alt="拡大したカード画像">
+    <p id="cardDetailCount" class="small" style="text-align:center"></p>
+    <div class="save-modal-actions">
+      <button type="button" class="danger" id="deleteCardFromDetail">このカード画像を削除</button>
+      <button type="button" id="closeCardDetailBottom">閉じる</button>
+    </div>
+  </section>
+</div>
+
+<div id="discardEditorModal" class="save-modal-backdrop" hidden>
+  <section class="save-modal" role="dialog" aria-modal="true" aria-labelledby="discardEditorTitle">
+    <h2 id="discardEditorTitle">保存せずに戻りますか？</h2>
+    <p>変更内容は保存されません。前の画面に戻っても大丈夫ですか？</p>
+    <div class="save-modal-actions">
+      <button type="button" class="danger" id="discardEditorConfirm">保存せずに戻る</button>
+      <button type="button" id="discardEditorCancel">編集を続ける</button>
+    </div>
+  </section>
+</div>
+
+<main>
+<header>
+  <div>
+    <h1>デッキ管理</h1>
+    <p style="margin:5px 0 0">デッキとカード画像は、このブラウザ内に保存されます。</p>
+  </div>
+  <a class="nav-button" href="index.html">ひとり回し盤</a>
+</header>
+
+<section id="listView">
+  <div class="panel">
+    <h2 style="margin-bottom:4px">保存したデッキ</h2>
+    <div class="small">アカウント登録は不要です。保存データはこの端末・ブラウザ内にあります。</div>
+    <button class="primary deck-add-button" id="newDeckBtn">＋ デッキ追加</button>
+  </div>
+  <div id="saveListNotice" class="panel" role="status" aria-live="polite" hidden style="border-color:#5b9b70;color:#d8f4df;margin-bottom:12px"></div>
+  <div id="deckList" class="deck-list"></div>
+  <section class="panel storage-panel" aria-live="polite">
+    <h2>画像の保存容量</h2>
+    <div id="storageSummary" class="storage-note">保存容量を確認しています…</div>
+    <div class="storage-track"><div id="storageFill" class="storage-fill"></div></div>
+    <div id="storageWarning" class="storage-note"></div>
+    <div class="storage-actions">
+      <button id="refreshStorage">容量を再確認</button>
+      <button class="orange" id="compressImages">画像を低画質化して軽くする</button>
+    </div>
+    <p class="small">低画質化すると、保存済みのカード画像・背景画像・裏面画像を縮小して保存容量を減らします。元の画質には戻せないため、必要なら元画像を手元に残しておいてください。</p>
+    <div id="compressMessage" class="storage-note" role="status"></div>
+  </section>
+  <div id="emptyDecks" class="empty hidden">まだデッキがありません。「新しいデッキ」から作成してください。</div>
+</section>
+
+<section id="visualSettings" class="panel">
+  <h2>盤面の見た目（全デッキ共通）</h2>
+  <p class="small">背景画像と裏面画像は、すべてのデッキで共通して使われます。背景は盤面いっぱいに表示され、端が切れる場合があります。</p>
+  <div class="visual-settings">
+    <div>
+      <h3 style="margin:0 0 8px;font-size:15px">背景画像</h3>
+      <div id="backgroundPreview" class="visual-preview"></div>
+      <div class="row" style="margin-top:10px">
+        <label class="button" for="backgroundImage">画像を読み込む</label>
+        <input id="backgroundImage" type="file" accept="image/*">
+        <button id="resetBackground">初期背景</button>
+      </div>
+      <div class="preset-row">
+        <button data-bg-preset="blue">青系プリセット</button>
+        <button data-bg-preset="orange">オレンジ系プリセット</button>
+      </div>
+    </div>
+    <div>
+      <h3 style="margin:0 0 8px;font-size:15px">裏面画像</h3>
+      <div id="cardBackPreview" class="back-preview"></div>
+      <div class="row" style="margin-top:10px">
+        <label class="button" for="cardBackImage">画像を読み込む</label>
+        <input id="cardBackImage" type="file" accept="image/*">
+        <button id="resetCardBack">初期裏面</button>
+      </div>
+      <div class="preset-row">
+        <button data-back-preset="blue">青系プリセット</button>
+        <button data-back-preset="orange">オレンジ系プリセット</button>
+      </div>
+    </div>
+  </div>
+  <div id="visualMessage" class="small" role="status" style="margin-top:10px"></div>
+</section>
+
+<section id="editorView" class="hidden">
+  <div class="panel">
+    <div class="editor-heading">
+      <h2 id="editorTitle">新しいデッキ</h2>
+      <button id="backBtn" class="editor-close" aria-label="閉じる">×</button>
+    </div>
+    <label class="small" for="deckName">デッキ名</label>
+    <input id="deckName" type="text" maxlength="80" placeholder="例：練習用デッキ" style="margin-top:6px">
+    <p class="small">同じカードは画像を1枚だけ登録し、枚数を指定してください。画像はブラウザ内に保存されます。</p>
+
+    <section class="panel editor-preview-panel" style="padding:10px;margin-bottom:12px">
+      <h2 style="margin-bottom:8px">デッキプレビュー</h2>
+      <div id="editorDeckPreview" class="editor-preview-grid" aria-label="デッキのカード一覧"></div>
+      <div id="editorPreviewEmpty" class="no-preview">カード画像を追加すると、ここにデッキ全体のプレビューが表示されます。</div>
+      <div id="editorPreviewSummary" class="small" style="margin-top:8px"></div>
+    </section>
+
+    <div class="editor-primary-actions">
+      <label class="button" for="cardImages">＋ カード画像を追加</label>
+      <input id="cardImages" type="file" accept="image/*" multiple>
+      <button id="saveDeckBtn" class="primary">デッキを保存</button>
+    </div>
+    <div id="message" role="status"></div>
+    <h2 style="margin-top:20px">登録したカード</h2>
+    <p class="small">カード画像をタップすると拡大表示できます。削除は拡大画面から行います。</p>
+    <div id="cardList" class="card-list"></div>
+    <div id="noCards" class="empty">カード画像を追加してください。</div>
+  </div>
+</section>
+</main>
+
+<script>
+
+const STORAGE_DB = 'soloCardBoardLocal';
+const STORAGE_STORE = 'decks';
+function openDeckDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(STORAGE_DB, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STORAGE_STORE)) db.createObjectStore(STORAGE_STORE, {keyPath:'id'});
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+async function getDeck(id) {
+  const db = await openDeckDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(STORAGE_STORE, 'readonly').objectStore(STORAGE_STORE).get(id);
+    req.onsuccess = () => { resolve(req.result || null); db.close(); };
+    req.onerror = () => { reject(req.error); db.close(); };
+  });
+}
+async function getAllDecks() {
+  const db = await openDeckDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(STORAGE_STORE, 'readonly').objectStore(STORAGE_STORE).getAll();
+    req.onsuccess = () => { resolve(req.result || []); db.close(); };
+    req.onerror = () => { reject(req.error); db.close(); };
+  });
+}
+async function putDeck(deck) {
+  const db = await openDeckDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(STORAGE_STORE, 'readwrite').objectStore(STORAGE_STORE).put(deck);
+    req.onsuccess = () => { resolve(true); db.close(); };
+    req.onerror = () => { reject(req.error); db.close(); };
+  });
+}
+async function deleteDeck(id) {
+  const db = await openDeckDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(STORAGE_STORE, 'readwrite').objectStore(STORAGE_STORE).delete(id);
+    req.onsuccess = () => { resolve(true); db.close(); };
+    req.onerror = () => { reject(req.error); db.close(); };
+  });
+}
+function makeId() {
+  return 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+const listView = document.getElementById('listView');
+const editorView = document.getElementById('editorView');
+const visualSettings = document.getElementById('visualSettings');
+const VISUAL_PREFS_KEY = 'soloCardBoardVisualPrefs';
+const visualMessage = document.getElementById('visualMessage');
+const bgPreview = document.getElementById('backgroundPreview');
+const backPreview = document.getElementById('cardBackPreview');
+const presetBackground = (tone) => {
+  const lower = tone === 'orange' ? '#252831' : '#1b1e24';
+  const dot = tone === 'orange' ? '#46404a' : '#3b414d';
+  const hand = tone === 'orange' ? '#c87522' : '#303642';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800" viewBox="0 0 600 800"><rect width="600" height="800" fill="${lower}"/><defs><pattern id="p" width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1" fill="${dot}"/></pattern></defs><rect width="600" height="800" fill="url(#p)"/><rect x="28" y="650" width="544" height="118" rx="22" fill="${hand}" opacity=".95"/></svg>`;
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+};
+const presetBack = tone => {
+  const a = tone === 'orange' ? '#66350f' : '#1c2b50';
+  const b = tone === 'orange' ? '#d7832d' : '#334b7b';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="350" height="490" viewBox="0 0 350 490"><rect width="350" height="490" rx="18" fill="${a}"/><path d="M0 0L350 490M-80 0L270 490M80 0L430 490M350 0L0 490M430 0L80 490M270 0L-80 490" stroke="${b}" stroke-width="20"/><rect x="28" y="28" width="294" height="434" rx="20" fill="none" stroke="#d8e0f5" stroke-width="5"/><circle cx="175" cy="245" r="65" fill="none" stroke="#d8e0f5" stroke-width="5"/><path d="M175 190L220 245 175 300 130 245Z" fill="none" stroke="#d8e0f5" stroke-width="5"/></svg>`;
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+};
+function readVisualPrefs() { try { return JSON.parse(localStorage.getItem(VISUAL_PREFS_KEY) || '{}'); } catch { return {}; } }
+function saveVisualPrefs(prefs) { localStorage.setItem(VISUAL_PREFS_KEY, JSON.stringify(prefs)); updateVisualPreviews(); visualMessage.textContent = '見た目の設定を保存しました。'; }
+function updateVisualPreviews() {
+  const prefs = readVisualPrefs();
+  // 初期背景はプリセット画像ではなく、盤面の標準ドット背景を表示する。
+  bgPreview.style.backgroundImage = prefs.background ? `url("${prefs.background}")` : 'radial-gradient(#3b414d 0.7px,transparent 0.7px)';
+  bgPreview.style.backgroundColor = '#1b1e24';
+  bgPreview.style.backgroundSize = prefs.background ? '100% 100%' : '16px 16px';
+  backPreview.style.backgroundImage = prefs.cardBack ? `url("${prefs.cardBack}")` : 'radial-gradient(ellipse at center,#364d88 0 13%,transparent 14%),repeating-linear-gradient(45deg,#1c2b50 0 5px,#334b7b 5px 10px)';
+}
+async function loadVisualFile(input, key) {
+  const file = input.files && input.files[0]; if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { visualMessage.textContent = '画像は5MB以下にしてください。'; input.value=''; return; }
+  const reader = new FileReader();
+  reader.onload = () => { const prefs=readVisualPrefs(); prefs[key]=reader.result; try { saveVisualPrefs(prefs); } catch { visualMessage.textContent='保存できませんでした。別の画像をお試しください。'; } };
+  reader.readAsDataURL(file);
+}
+document.getElementById('backgroundImage').addEventListener('change', e => loadVisualFile(e.target, 'background'));
+document.getElementById('cardBackImage').addEventListener('change', e => loadVisualFile(e.target, 'cardBack'));
+document.getElementById('resetBackground').addEventListener('click', () => { const p=readVisualPrefs(); delete p.background; saveVisualPrefs(p); });
+document.getElementById('resetCardBack').addEventListener('click', () => { const p=readVisualPrefs(); delete p.cardBack; saveVisualPrefs(p); });
+document.querySelectorAll('[data-bg-preset]').forEach(b => b.addEventListener('click', () => { const p=readVisualPrefs(); p.background=presetBackground(b.dataset.bgPreset); saveVisualPrefs(p); }));
+document.querySelectorAll('[data-back-preset]').forEach(b => b.addEventListener('click', () => { const p=readVisualPrefs(); p.cardBack=presetBack(b.dataset.backPreset); saveVisualPrefs(p); }));
+updateVisualPreviews();
+
+const deckListEl = document.getElementById('deckList');
+const emptyDecks = document.getElementById('emptyDecks');
+const cardListEl = document.getElementById('cardList');
+const noCards = document.getElementById('noCards');
+const deckNameInput = document.getElementById('deckName');
+const message = document.getElementById('message');
+let editingDeck = null;
+let cardEntries = [];
+
+function fileToDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+function escapeHTML(value) {
+  return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function roughBytes(value) {
+  if (typeof value !== 'string') return 0;
+  if (value.startsWith('data:')) {
+    const comma = value.indexOf(',');
+    const payload = comma >= 0 ? value.slice(comma + 1) : value;
+    return Math.floor(payload.length * 0.75);
+  }
+  return new Blob([value]).size;
+}
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024*1024) return `${(bytes/1024).toFixed(1)} KB`;
+  return `${(bytes/(1024*1024)).toFixed(1)} MB`;
+}
+async function updateStorageEstimate() {
+  const decks = await getAllDecks();
+  let bytes = 0;
+  for (const deck of decks) for (const card of (deck.cards || [])) bytes += roughBytes(card.src);
+  const prefs = readVisualPrefs();
+  bytes += roughBytes(prefs.background) + roughBytes(prefs.cardBack);
+  let quota = null;
+  try { if (navigator.storage && navigator.storage.estimate) quota = await navigator.storage.estimate(); } catch {}
+  const summary = document.getElementById('storageSummary');
+  const warning = document.getElementById('storageWarning');
+  const fill = document.getElementById('storageFill');
+  summary.textContent = `このサイトの画像データ：約${formatBytes(bytes)}${quota && quota.quota ? ` ／ ブラウザ全体の使用量 ${formatBytes(quota.usage || 0)}・目安上限 ${formatBytes(quota.quota)}` : ''}`;
+  // ブラウザ全体の巨大な割当量ではなく、このサイト自身の画像量を5段階で示す。
+  const mb = bytes / (1024*1024);
+  const level = mb < 5 ? 1 : mb < 15 ? 2 : mb < 35 ? 3 : mb < 75 ? 4 : 5;
+  const widths = [0,20,40,60,80,100];
+  fill.className = `storage-fill level-${level}`;
+  fill.style.width = `${widths[level]}%`;
+  if (level === 5) warning.textContent = '画像データがかなり大きくなっています。保存エラーを防ぐため、低画質化をおすすめします。';
+  else if (level === 4) warning.textContent = '画像データが大きくなっています。これ以上追加する前に、低画質化をおすすめします。';
+  else if (level === 3) warning.textContent = '画像データが増えてきました。画像をたくさん追加する予定なら、低画質化を検討してください。';
+  else if (level === 2) warning.textContent = '画像データが少し増えています。必要に応じて低画質化できます。';
+  else warning.textContent = '画像データはまだ少なめです。画像を追加すると保存容量が増えます。';
+}
+function imageDataToCompressed(dataUrl, maxSide=900, quality=0.72) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxSide / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round((img.naturalWidth || img.width) * scale));
+      canvas.height = Math.max(1, Math.round((img.naturalHeight || img.height) * scale));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return reject(new Error('canvas unavailable'));
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.drawImage(img,0,0,canvas.width,canvas.height);
+      try { resolve(canvas.toDataURL('image/jpeg', quality)); } catch (e) { reject(e); }
+    };
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+async function compressAllImages() {
+  const btn = document.getElementById('compressImages');
+  const status = document.getElementById('compressMessage');
+  if (!confirm('保存済みの画像を縮小・圧縮します。元の画質には戻せません。続けますか？')) return;
+  btn.disabled = true; status.textContent = '画像を低画質化しています…';
+  let before = 0, after = 0, changed = 0;
+  try {
+    const decks = await getAllDecks();
+    for (const deck of decks) {
+      for (const card of (deck.cards || [])) {
+        if (!card.src || !String(card.src).startsWith('data:image/')) continue;
+        before += roughBytes(card.src);
+        const compressed = await imageDataToCompressed(card.src, 900, 0.72);
+        if (roughBytes(compressed) < roughBytes(card.src)) { card.src = compressed; changed++; }
+        after += roughBytes(card.src);
+      }
+      deck.updatedAt = Date.now();
+      await putDeck(deck);
+    }
+    const prefs = readVisualPrefs();
+    for (const key of ['background','cardBack']) {
+      if (prefs[key] && String(prefs[key]).startsWith('data:image/') && !String(prefs[key]).startsWith('data:image/svg+xml')) {
+        before += roughBytes(prefs[key]);
+        const compressed = await imageDataToCompressed(prefs[key], 1200, 0.75);
+        if (roughBytes(compressed) < roughBytes(prefs[key])) { prefs[key] = compressed; changed++; }
+        after += roughBytes(prefs[key]);
+      }
+    }
+    saveVisualPrefs(prefs);
+    await renderDecks();
+    await updateStorageEstimate();
+    status.textContent = `完了：${changed}枚の画像を処理しました。圧縮対象の容量は約${formatBytes(before)}から約${formatBytes(after)}になりました。`;
+  } catch (e) {
+    status.textContent = '一部の画像を処理できませんでした。ブラウザの保存容量や画像形式を確認してください。';
+  } finally { btn.disabled = false; }
+}
+document.getElementById('refreshStorage').addEventListener('click', () => updateStorageEstimate().catch(() => {}));
+document.getElementById('compressImages').addEventListener('click', compressAllImages);
+
+async function renderDecks() {
+  const decks = (await getAllDecks()).sort((a,b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  deckListEl.innerHTML = '';
+  emptyDecks.classList.toggle('hidden', decks.length !== 0);
+  decks.forEach(deck => {
+    const total = (deck.cards || []).reduce((sum, c) => sum + (Number(c.count) || 0), 0);
+    const card = document.createElement('article');
+    card.className = 'deck-card';
+    const previewCards = [];
+    (deck.cards || []).forEach(c => {
+      const copies = Math.max(0, Math.min(100, Math.floor(Number(c.count) || 0)));
+      for (let i = 0; i < copies; i++) {
+        previewCards.push(`<div class="preview-card"><img loading="lazy" alt="" src="${c.src}"></div>`);
+      }
+    });
+    card.innerHTML = `<h3>${escapeHTML(deck.name || '名前のないデッキ')}</h3>
+      <div class="meta">${(deck.cards || []).length}種類 / ${total}枚</div>
+      ${previewCards.length ? `<div class="deck-preview" aria-label="デッキのカード一覧">${previewCards.join('')}</div>` : `<div class="no-preview">カードがありません。編集から枚数を設定してください。</div>`}
+      <div class="row">
+        <a class="button primary" href="index.html?deck=${encodeURIComponent(deck.id)}">ひとり回し</a>
+        <button data-edit="${escapeHTML(deck.id)}">編集</button>
+        <button class="danger" data-delete="${escapeHTML(deck.id)}">削除</button>
+      </div>`;
+    deckListEl.appendChild(card);
+  });
+  updateStorageEstimate().catch(() => {});
+  deckListEl.querySelectorAll('[data-edit]').forEach(btn => btn.addEventListener('click', async () => {
+    const deck = await getDeck(btn.dataset.edit);
+    if (deck) openEditor(deck);
+  }));
+  deckListEl.querySelectorAll('[data-delete]').forEach(btn => btn.addEventListener('click', async () => {
+    const deck = await getDeck(btn.dataset.delete);
+    if (!deck) return;
+    if (!confirm(`「${deck.name}」を削除しますか？`)) return;
+    await deleteDeck(deck.id);
+    await renderDecks();
+  }));
+}
+function sizeEditorPreview() {
+  const preview = document.getElementById('editorDeckPreview');
+  if (!preview) return;
+  const cs = getComputedStyle(preview);
+  const px = value => Number.parseFloat(value) || 0;
+  const innerWidth = preview.clientWidth - px(cs.paddingLeft) - px(cs.paddingRight);
+  const gap = px(cs.columnGap);
+  const cardWidth = Math.max(0, (innerWidth - gap * 7) / 8);
+  const cardHeight = cardWidth * 1.4;
+  const rowGap = px(cs.rowGap);
+  const height = px(cs.paddingTop) + px(cs.paddingBottom) + cardHeight * 5.45 + rowGap * 4 + 2;
+  preview.style.height = `${Math.ceil(height)}px`;
+}
+window.addEventListener('resize', sizeEditorPreview);
+if ('ResizeObserver' in window) {
+  const previewResizeObserver = new ResizeObserver(sizeEditorPreview);
+  window.addEventListener('load', () => {
+    const preview = document.getElementById('editorDeckPreview');
+    if (preview) previewResizeObserver.observe(preview);
+    sizeEditorPreview();
+  });
+}
+
+function renderCards() {
+  cardListEl.innerHTML = '';
+  noCards.classList.toggle('hidden', cardEntries.length !== 0);
+  const preview = document.getElementById('editorDeckPreview');
+  const previewEmpty = document.getElementById('editorPreviewEmpty');
+  const previewSummary = document.getElementById('editorPreviewSummary');
+  const expanded = [];
+  let total = 0;
+  cardEntries.forEach((card, index) => {
+    const count = Math.max(0, Math.min(100, Math.floor(Number(card.count) || 0)));
+    total += count;
+    for (let n = 0; n < count; n++) expanded.push(card);
+    const item = document.createElement('article');
+    item.className = 'card-item';
+    item.innerHTML = `<button type="button" class="card-image-open" data-open-card="${index}" aria-label="${escapeHTML(card.name || 'カード画像')}を拡大表示"><img alt="" src="${card.src}"></button>
+      <div class="small" style="text-align:center">枚数</div>
+      <div class="quantity-control">
+        <button type="button" aria-label="1枚減らす" data-minus="${index}">−</button>
+        <span class="quantity-value" data-quantity="${index}">${count}</span>
+        <button type="button" aria-label="1枚増やす" data-plus="${index}">＋</button>
+      </div>`;
+    cardListEl.appendChild(item);
+  });
+  preview.innerHTML = '';
+  expanded.forEach(card => {
+    const cell = document.createElement('div');
+    cell.className = 'preview-card';
+    const img = document.createElement('img'); img.loading = 'lazy'; img.alt = ''; img.src = card.src;
+    cell.appendChild(img); preview.appendChild(cell);
+  });
+  previewEmpty.classList.toggle('hidden', expanded.length > 0);
+  previewSummary.textContent = `${cardEntries.length}種類 / 合計${total}枚`;
+  sizeEditorPreview();
+
+  cardListEl.querySelectorAll('[data-minus]').forEach(btn => btn.addEventListener('click', () => {
+    const index = Number(btn.dataset.minus);
+    cardEntries[index].count = Math.max(0, Math.floor(Number(cardEntries[index].count) || 0) - 1);
+    renderCards(); markEditorChanged();
+  }));
+  cardListEl.querySelectorAll('[data-plus]').forEach(btn => btn.addEventListener('click', () => {
+    const index = Number(btn.dataset.plus);
+    cardEntries[index].count = Math.min(100, Math.floor(Number(cardEntries[index].count) || 0) + 1);
+    renderCards(); markEditorChanged();
+  }));
+  cardListEl.querySelectorAll('[data-open-card]').forEach(btn => btn.addEventListener('click', () => openCardDetail(Number(btn.dataset.openCard))));
+}
+let editorInitialSnapshot = '';
+let selectedDetailIndex = -1;
+function editorSnapshot() {
+  return JSON.stringify({name:deckNameInput.value, cards:cardEntries.map(c=>({id:c.id,name:c.name,src:c.src,count:Number(c.count)||0}))});
+}
+function markEditorChanged() { /* snapshot comparison detects changes */ }
+function openCardDetail(index) {
+  const card = cardEntries[index]; if (!card) return;
+  selectedDetailIndex = index;
+  document.getElementById('cardDetailTitle').textContent = card.name || 'カード画像';
+  document.getElementById('cardDetailImage').src = card.src;
+  document.getElementById('cardDetailCount').textContent = `デッキ内の枚数：${Math.max(0,Number(card.count)||0)}枚`;
+  document.getElementById('cardDetailModal').hidden = false;
+}
+function closeCardDetail() { document.getElementById('cardDetailModal').hidden = true; selectedDetailIndex = -1; }
+function requestCloseEditor() {
+  if (editorInitialSnapshot && editorSnapshot() !== editorInitialSnapshot) {
+    document.getElementById('discardEditorModal').hidden = false;
+  } else closeEditor();
+}
+
+function openEditor(deck = null) {
+  editingDeck = deck ? {...deck} : {id:makeId(), name:'', cards:[]};
+  cardEntries = (deck?.cards || []).map(c => ({...c}));
+  deckNameInput.value = deck?.name || '';
+  document.getElementById('editorTitle').textContent = deck ? 'デッキを編集' : '新しいデッキ';
+  message.textContent = '';
+  listView.classList.add('hidden');
+  visualSettings.classList.add('hidden');
+  editorView.classList.remove('hidden');
+  renderCards();
+  editorInitialSnapshot = editorSnapshot();
+  window.scrollTo(0,0);
+}
+function closeEditor() {
+  editorView.classList.add('hidden');
+  visualSettings.classList.remove('hidden');
+  listView.classList.remove('hidden');
+  renderDecks().catch(() => {});
+}
+async function saveCurrentDeck() {
+  const name = deckNameInput.value.trim();
+  if (!name) { message.textContent = 'デッキ名を入力してください。'; return false; }
+  if (!cardEntries.length) { message.textContent = 'カード画像を1種類以上追加してください。'; return false; }
+  const deck = {...editingDeck, name, cards:cardEntries.map(c => ({...c, count:Math.max(0, Math.floor(Number(c.count) || 0))})), updatedAt:Date.now()};
+  try {
+    await putDeck(deck);
+    editingDeck = deck;
+    editorInitialSnapshot = editorSnapshot();
+    message.textContent = '';
+    await renderDecks();
+    closeEditor();
+    const notice = document.getElementById('saveListNotice');
+    notice.textContent = `「${name}」を保存しました。`;
+    notice.hidden = false;
+    window.scrollTo({top:0, behavior:'smooth'});
+    return true;
+  } catch (e) {
+    message.textContent = '保存できませんでした。ブラウザの保存容量を確認してください。';
+    return false;
+  }
+}
+document.getElementById('newDeckBtn').addEventListener('click', () => openEditor());
+document.getElementById('backBtn').addEventListener('click', requestCloseEditor);
+document.getElementById('deckName').addEventListener('input', markEditorChanged);
+document.getElementById('closeCardDetail').addEventListener('click', closeCardDetail);
+document.getElementById('closeCardDetailBottom').addEventListener('click', closeCardDetail);
+document.getElementById('cardDetailModal').addEventListener('click', e => { if (e.target.id === 'cardDetailModal') closeCardDetail(); });
+document.getElementById('deleteCardFromDetail').addEventListener('click', () => {
+  const card = cardEntries[selectedDetailIndex]; if (!card) return;
+  if (!confirm(`「${card.name || 'カード画像'}」をデッキから削除しますか？`)) return;
+  cardEntries.splice(selectedDetailIndex, 1); closeCardDetail(); renderCards(); markEditorChanged();
+});
+document.getElementById('discardEditorConfirm').addEventListener('click', () => { document.getElementById('discardEditorModal').hidden = true; closeEditor(); });
+document.getElementById('discardEditorCancel').addEventListener('click', () => { document.getElementById('discardEditorModal').hidden = true; });
+document.getElementById('saveDeckBtn').addEventListener('click', saveCurrentDeck);
+document.getElementById('cardImages').addEventListener('change', async e => {
+  const files = [...(e.target.files || [])];
+  for (const file of files) {
+    if (!file.type.startsWith('image/')) continue;
+    try {
+      const src = await fileToDataURL(file);
+      cardEntries.push({id:makeId(), name:file.name.replace(/\.[^.]+$/, ''), src, count:1});
+    } catch {}
+  }
+  e.target.value = '';
+  renderCards();
+  markEditorChanged();
+  updateStorageEstimate().catch(() => {});
+});
+(async () => {
+  try {
+    const params = new URLSearchParams(location.search);
+    const editId = params.get('edit');
+    if (editId) {
+      const deck = await getDeck(editId);
+      if (deck) openEditor(deck);
+      else await renderDecks();
+    } else {
+      await renderDecks();
+    }
+  } catch {
+    emptyDecks.textContent = '保存データを読み込めませんでした。このブラウザでIndexedDBが利用できるか確認してください。';
+    emptyDecks.classList.remove('hidden');
+  }
+})();
+
+document.getElementById('closeSaveSuccess').addEventListener('click', () => {
+  document.getElementById('saveSuccessModal').hidden = true;
+});
+document.getElementById('returnToDeckEditor').addEventListener('click', () => {
+  document.getElementById('saveSuccessModal').hidden = true;
+  editorView.scrollIntoView({behavior:'smooth', block:'start'});
+});
+document.getElementById('saveSuccessModal').addEventListener('click', event => {
+  if (event.target.id === 'saveSuccessModal') event.target.hidden = true;
+});
+
+</script>
+</body>
+</html>
