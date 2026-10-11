@@ -525,7 +525,21 @@ function makeId() {
       return;
     }
     saveUndo();
-    const group = chosen.map(c => ({src:c.src, name:c.name, known:!c.unknown && !!c.known, fixedTop:!!toTop, fixedBottom:!toTop, fixedUnknownOrder:true}));
+    // Exception: if every selected card has the same known identity, their shuffled
+    // order is irrelevant: every position in the group is still that same card.
+    // Mixed groups must remain unknown by position, while retaining their composition.
+    const firstKnownSrc = chosen[0].src;
+    const allSameKnownCard = !!firstKnownSrc && chosen.every(c =>
+      !c.unknown && !!c.known && c.src === firstKnownSrc
+    );
+    const group = chosen.map(c => ({
+      src:c.src,
+      name:c.name,
+      known:!c.unknown && !!c.known,
+      fixedTop:!!toTop,
+      fixedBottom:!toTop,
+      fixedUnknownOrder:!allSameKnownCard
+    }));
     for (let i = group.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [group[i], group[j]] = [group[j], group[i]];
